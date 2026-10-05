@@ -93,6 +93,13 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  //alarm
+  int interval;                 // Interval for alarm
+  void (*alarm_handler)();      // Alarm handler function pointer
+  int ticks_since_alarm;          // Ticks since last alarm
+  int alarm_active;              // Flag to indicate if alarm is active
+  struct trapframe alarm_trapframe; // Saved user state while alarm handler runs
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
