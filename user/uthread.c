@@ -12,6 +12,9 @@
 
 
 struct thread {
+  uint64     ra;
+  uint64     sp;
+  uint64     s[12];             /* callee-saved registers */
   char       stack[STACK_SIZE]; /* the thread's stack */
   int        state;             /* FREE, RUNNING, RUNNABLE */
 };
@@ -58,6 +61,7 @@ thread_schedule(void)
     next_thread->state = RUNNING;
     t = current_thread;
     current_thread = next_thread;
+    thread_switch((uint64)t,(uint64)next_thread);
     /* YOUR CODE HERE
      * Invoke thread_switch to switch from t to next_thread:
      * thread_switch(??, ??);
@@ -76,6 +80,13 @@ thread_create(void (*func)())
   }
   t->state = RUNNABLE;
   // YOUR CODE HERE
+  t->ra=(uint64)func; //栈
+  t->sp=(uint64)(t->stack+STACK_SIZE); //栈顶
+
+  for(int i=0;i<12;i++){
+    t->s[i]=0; //清空寄存器
+  }
+
 }
 
 void 

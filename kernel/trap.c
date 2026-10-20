@@ -65,7 +65,32 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  }
+  else if(r_scause()==15){
+    uint64 va = r_stval();
+    uint64 pa;
+    pte_t *pte=walk(p->pagetable, va, 0); // get the pte of the faulting address
+
+    if(pte==0 || (*pte & PTE_COW)==0){
+      //不是cow页或者pte不存在，直接杀掉进程
+      p->killed=1;
+    }else{
+      //是cow页，进行处理
+      pa=PTE2PA(*pte);
+      uint flags=PTE_FLAGS(*pte);
+      char *mem=kalloc();
+      if(mem==0){
+        p->killed=1;//分配失败，杀掉进程
+      }else{//分配成功，进行页复制
+        memmove(mem, (char*)pa, PGSIZE);
+        *pte=PA2PTE(mem)|flags|PTE_W;
+        *pte&=~PTE_COW;//清除cow标志
+        kfree((void*)pa); //释放原来的物理页
+      }
+    }
+  }
+
+  else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);

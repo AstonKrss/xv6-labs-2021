@@ -6,6 +6,7 @@
 #include "defs.h"
 #include "fs.h"
 
+
 /*
  * the kernel's page table.
  */
@@ -303,27 +304,38 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
+    pa = PTE2PA(*pte); //拿到物理地址
+
+    // Copy-on-write implementation
+    *pte &= ~PTE_W; // Clear the writable bit
+    *pte |= PTE_COW; // Set the copy-on-write bit
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+
+    if(mappages(new,i,PGSIZE,pa,flags) != 0){
       goto err;
     }
+    kref_inc((void*)pa); // Increment the reference count for the physical page
+
+
+    //之前的逻辑
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    //   kfree(mem);
+    //   goto err;
+    // }
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / PGSIZE, 0);
   return -1;
 }
 
@@ -353,6 +365,23 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
+
+    //检查是不是cow页
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(pte && (*pte & PTE_COW)){
+      //是cow页，进行处理
+      char *mem = kalloc();
+      if(mem == 0){
+        return -1; //分配失败，返回错误
+      }
+      uint flags = PTE_FLAGS(*pte);
+      memmove(mem, (char*)pa0, PGSIZE);
+      *pte = PA2PTE(mem) | flags | PTE_W;
+      *pte &= ~PTE_COW; //清除cow标志
+      kfree((void*)pa0); //释放原来的物理页
+      pa0 = (uint64)mem; //更新pa0为新分配的物理页
+    }
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
